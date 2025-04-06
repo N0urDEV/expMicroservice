@@ -14,25 +14,45 @@ mongoose
 
 app.use(express.json());
 
-// la méthode regiter permettera de créer et d'ajouter un nouvel utilisateur à la base de données
+// Middleware d'authentification
+const isAuthenticated = async (req, res, next) => {
+  const token = req.headers["authorization"]?.split(" ")[1];
+
+  if (!token) {
+    return res
+      .status(401)
+      .json({ message: "Token d'authentification manquant" });
+  }
+
+  jwt.verify(token, "secret", (err, user) => {
+    if (err) {
+      return res.status(401).json({ message: err });
+    } else {
+      req.user = user;
+      next();
+    }
+  });
+};
+
+// POST /auth/register : Inscription d'un nouvel utilisateur
 app.post("/auth/register", async (req, res) => {
-  let { nom, email, mot_passe } = req.body;
+  let { nom, email, mot_de_passe } = req.body;
   //On vérifie si le nouvel utilisateur est déjà inscrit avec la même adresse email ou pas
   const userExists = await Utilisateur.findOne({ email });
   if (userExists) {
     return res.json({ message: "Cet utilisateur existe déjà" });
   } else {
-    bcrypt.hash(mot_passe, 10, (err, hash) => {
+    bcrypt.hash(mot_de_passe, 10, (err, hash) => {
       if (err) {
         return res.status(500).json({
           error: err,
         });
       } else {
-        mot_passe = hash;
+        mot_de_passe = hash;
         const newUtilisateur = new Utilisateur({
           nom,
           email,
-          mot_passe,
+          mot_de_passe,
         });
 
         newUtilisateur
@@ -44,14 +64,14 @@ app.post("/auth/register", async (req, res) => {
   }
 });
 
-//la méthode login permettera de retourner un token après vérification de l'email et du mot de passe
+// POST /auth/login : Connexion d'un utilisateur
 app.post("/auth/login", async (req, res) => {
-  const { email, mot_passe } = req.body;
+  const { email, mot_de_passe } = req.body;
   const utilisateur = await Utilisateur.findOne({ email });
   if (!utilisateur) {
     return res.json({ message: "Utilisateur introuvable" });
   } else {
-    bcrypt.compare(mot_passe, utilisateur.mot_passe).then((resultat) => {
+    bcrypt.compare(mot_de_passe, utilisateur.mot_de_passe).then((resultat) => {
       if (!resultat) {
         return res.json({ message: "Mot de passe incorrect" });
       } else {
@@ -65,6 +85,27 @@ app.post("/auth/login", async (req, res) => {
         });
       }
     });
+  }
+});
+
+// GET /auth/profil : Retourne les informations de l'utilisateur connecté
+app.get("/auth/profil", isAuthenticated, async (req, res) => {
+  try {
+    const utilisateur = await Utilisateur.findOne({ email: req.user.email });
+
+    if (!utilisateur) {
+      return res.status(404).json({ message: "Utilisateur introuvable" });
+    }
+
+    // Ne pas envoyer le mot de passe
+    const { mot_de_passe, ...userInfo } = utilisateur.toObject();
+
+    return res.status(200).json(userInfo);
+  } catch (error) {
+    console.error(error);
+    return res
+      .status(500)
+      .json({ message: "Erreur serveur", error: error.message });
   }
 });
 
